@@ -7,9 +7,10 @@ interface Props {
   playerCount: number;
   onToggleSidebar: () => void;
   storyCount: number;
+  connected: boolean;
 }
 
-export default function RoomHeader({ roomId, scale, playerCount, onToggleSidebar, storyCount }: Props) {
+export default function RoomHeader({ roomId, scale, playerCount, onToggleSidebar, storyCount, connected }: Props) {
   const [copied, setCopied] = useState(false);
 
   function copyLink() {
@@ -42,6 +43,11 @@ export default function RoomHeader({ roomId, scale, playerCount, onToggleSidebar
         <span className="hidden text-xs text-text-muted sm:inline">
           {playerCount} player{playerCount !== 1 ? "s" : ""}
         </span>
+        {!connected && (
+          <span className="rounded-md bg-danger/20 px-2 py-0.5 text-xs text-danger">
+            Reconnecting...
+          </span>
+        )}
       </div>
       <button
         onClick={copyLink}

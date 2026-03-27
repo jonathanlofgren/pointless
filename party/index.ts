@@ -78,13 +78,24 @@ function nanoid(len = 8): string {
   return id;
 }
 
+// Persisted state shape (what goes into room.storage)
+interface PersistedState {
+  players: [string, Player][];
+  connectionToPlayer: [string, string][];
+  stories: Story[];
+  currentStoryId: string | null;
+  scale: PointScale;
+  phase: "voting" | "revealed";
+}
+
 // --- Server ---
 
 export default class PokerRoom implements Party.Server {
+  // Hibernate lets the runtime evict this instance from memory when idle.
+  // We persist state to room.storage so it survives eviction.
   options: Party.ServerOptions = { hibernate: true };
 
   players: Map<string, Player> = new Map();
-  // Map connection ID -> player ID for routing
   connectionToPlayer: Map<string, string> = new Map();
   stories: Story[] = [];
   currentStoryId: string | null = null;
@@ -92,6 +103,68 @@ export default class PokerRoom implements Party.Server {
   phase: "voting" | "revealed" = "voting";
 
   constructor(readonly room: Party.Room) {}
+
+  // Called when the server wakes from hibernation or first starts.
+  // Restore state from durable storage.
+  async onStart() {
+    const saved = await this.room.storage.get<PersistedState>("state");
+    if (saved) {
+      this.players = new Map(saved.players);
+      this.connectionToPlayer = new Map(saved.connectionToPlayer ?? []);
+      this.stories = saved.stories;
+      this.currentStoryId = saved.currentStoryId;
+      this.scale = saved.scale;
+      this.phase = saved.phase;
+      // Mark players as connected if their connection still exists
+      const activeConnectionIds = new Set<string>();
+      for (const conn of this.room.getConnections()) {
+        activeConnectionIds.add(conn.id);
+      }
+      for (const player of this.players.values()) {
+        // Check if any active connection maps to this player
+        let connected = false;
+        for (const [connId, pId] of this.connectionToPlayer) {
+          if (pId === player.id && activeConnectionIds.has(connId)) {
+            connected = true;
+            break;
+          }
+        }
+        player.isConnected = connected;
+      }
+      // Clean up stale connection mappings
+      for (const [connId] of this.connectionToPlayer) {
+        if (!activeConnectionIds.has(connId)) {
+          this.connectionToPlayer.delete(connId);
+        }
+      }
+    }
+  }
+
+  // Persist current state to durable storage
+  async saveState() {
+    const state: PersistedState = {
+      players: Array.from(this.players.entries()),
+      connectionToPlayer: Array.from(this.connectionToPlayer.entries()),
+      stories: this.stories,
+      currentStoryId: this.currentStoryId,
+      scale: this.scale,
+      phase: this.phase,
+    };
+    await this.room.storage.put("state", state);
+  }
+
+  // Look up player ID from connection, or ask client to re-identify
+  getPlayerId(connection: Party.Connection): string | null {
+    const playerId = this.connectionToPlayer.get(connection.id);
+    if (!playerId) {
+      // Connection mapping lost (e.g., after hibernation wake).
+      // Ask client to re-send join.
+      this.send(connection, { type: "error", message: "Please rejoin" });
+      this.send(connection, { type: "sync", state: this.getState() });
+      return null;
+    }
+    return playerId;
+  }
 
   getState(): RoomState {
     return {
@@ -146,7 +219,7 @@ export default class PokerRoom implements Party.Server {
         this.handleClearVotes();
         break;
       case "add-story":
-        this.handleAddStory(msg.title);
+        this.handleAddStory(sender, msg.title);
         break;
       case "select-story":
         this.handleSelectStory(msg.storyId);
@@ -168,10 +241,17 @@ export default class PokerRoom implements Party.Server {
     if (playerId) {
       const player = this.players.get(playerId);
       if (player) {
-        player.isConnected = false;
-        this.broadcast({ type: "player-left", playerId });
+        // Only mark disconnected if no other connection maps to this player
+        const hasOtherConnection = Array.from(this.connectionToPlayer.entries()).some(
+          ([connId, pId]) => pId === playerId && connId !== connection.id
+        );
+        if (!hasOtherConnection) {
+          player.isConnected = false;
+          this.broadcast({ type: "player-left", playerId });
+        }
       }
       this.connectionToPlayer.delete(connection.id);
+      this.saveState();
     }
   }
 
@@ -184,16 +264,12 @@ export default class PokerRoom implements Party.Server {
   handleJoin(connection: Party.Connection, playerId: string, name: string) {
     const existing = this.players.get(playerId);
     if (existing) {
-      // Reconnecting player — update connection mapping and mark connected
       existing.name = name;
       existing.isConnected = true;
       this.connectionToPlayer.set(connection.id, playerId);
-      // Send full sync to reconnecting player
       this.send(connection, { type: "sync", state: this.getState() });
-      // Notify others
       this.broadcast({ type: "player-joined", player: existing }, [connection.id]);
     } else {
-      // New player
       const player: Player = {
         id: playerId,
         name,
@@ -202,18 +278,17 @@ export default class PokerRoom implements Party.Server {
       };
       this.players.set(playerId, player);
       this.connectionToPlayer.set(connection.id, playerId);
-      // Send full state to new player
       this.send(connection, { type: "sync", state: this.getState() });
-      // Broadcast to others
       this.broadcast({ type: "player-joined", player }, [connection.id]);
     }
+    this.saveState();
   }
 
   handleVote(sender: Party.Connection, value: string) {
     if (this.phase === "revealed") return;
     if (!this.currentStoryId) return;
 
-    const playerId = this.connectionToPlayer.get(sender.id);
+    const playerId = this.getPlayerId(sender);
     if (!playerId) return;
 
     const player = this.players.get(playerId);
@@ -221,15 +296,14 @@ export default class PokerRoom implements Party.Server {
 
     player.vote = value;
     this.broadcast({ type: "player-voted", playerId }, [sender.id]);
-    // Send confirmation back to voter with their own vote visible
     this.send(sender, { type: "sync", state: this.getState() });
+    this.saveState();
   }
 
   handleReveal() {
     if (this.phase === "revealed") return;
     if (!this.currentStoryId) return;
 
-    // Check if anyone has voted
     const hasVotes = Array.from(this.players.values()).some(
       (p) => p.isConnected && p.vote !== null
     );
@@ -237,7 +311,6 @@ export default class PokerRoom implements Party.Server {
 
     this.phase = "revealed";
 
-    // Collect votes for the story
     const votes: Record<string, string> = {};
     for (const player of this.players.values()) {
       if (player.vote !== null) {
@@ -245,13 +318,13 @@ export default class PokerRoom implements Party.Server {
       }
     }
 
-    // Save votes to the story
     const story = this.stories.find((s) => s.id === this.currentStoryId);
     if (story) {
       story.votes = votes;
     }
 
     this.broadcast({ type: "votes-revealed", votes, storyId: this.currentStoryId });
+    this.saveState();
   }
 
   handleClearVotes() {
@@ -260,11 +333,17 @@ export default class PokerRoom implements Party.Server {
       player.vote = null;
     }
     this.broadcast({ type: "votes-cleared" });
+    this.saveState();
   }
 
-  handleAddStory(title: string) {
+  handleAddStory(sender: Party.Connection, title: string) {
     const trimmed = title.trim();
     if (!trimmed) return;
+
+    if (this.stories.some((s) => s.title.toLowerCase() === trimmed.toLowerCase())) {
+      this.send(sender, { type: "error", message: "A story with that name already exists" });
+      return;
+    }
 
     const story: Story = {
       id: nanoid(),
@@ -274,7 +353,6 @@ export default class PokerRoom implements Party.Server {
     };
     this.stories.push(story);
 
-    // Auto-select if no current story
     if (!this.currentStoryId) {
       this.currentStoryId = story.id;
       this.broadcast({ type: "story-added", story });
@@ -282,6 +360,7 @@ export default class PokerRoom implements Party.Server {
     } else {
       this.broadcast({ type: "story-added", story });
     }
+    this.saveState();
   }
 
   handleSelectStory(storyId: string) {
@@ -296,6 +375,7 @@ export default class PokerRoom implements Party.Server {
 
     this.broadcast({ type: "story-selected", storyId });
     this.broadcast({ type: "votes-cleared" });
+    this.saveState();
   }
 
   handleSetEstimate(storyId: string, value: string) {
@@ -304,6 +384,7 @@ export default class PokerRoom implements Party.Server {
 
     story.finalEstimate = value;
     this.broadcast({ type: "story-estimated", storyId, value });
+    this.saveState();
   }
 
   handleRemoveStory(storyId: string) {
@@ -318,10 +399,10 @@ export default class PokerRoom implements Party.Server {
     }
 
     this.broadcast({ type: "story-removed", storyId });
+    this.saveState();
   }
 
   handleNextStory() {
-    // Find next unestimated story
     const nextStory = this.stories.find(
       (s) => s.finalEstimate === null && s.id !== this.currentStoryId
     );
@@ -331,7 +412,6 @@ export default class PokerRoom implements Party.Server {
     }
   }
 
-  // HTTP endpoint for room metadata
   async onRequest(req: Party.Request) {
     if (req.method === "GET") {
       return new Response(

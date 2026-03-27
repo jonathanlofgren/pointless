@@ -2,10 +2,11 @@ import { useState } from "react";
 
 interface Props {
   onSubmit: (name: string) => void;
+  suggestedName?: string;
 }
 
-export default function NameEntryForm({ onSubmit }: Props) {
-  const [name, setName] = useState("");
+export default function NameEntryForm({ onSubmit, suggestedName }: Props) {
+  const [name, setName] = useState(suggestedName ?? "");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">

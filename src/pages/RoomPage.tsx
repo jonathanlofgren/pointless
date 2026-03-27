@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useRoom } from "../hooks/useRoom";
 import { usePlayerName } from "../hooks/usePlayerName";
@@ -15,10 +15,13 @@ export default function RoomPage() {
   const [searchParams] = useSearchParams();
   const scaleId = searchParams.get("scale") ?? undefined;
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [optimisticVote, setOptimisticVote] = useState<string | null>(null);
+  const lastRoundKey = useRef("");
 
-  const { name, playerId, setName } = usePlayerName();
+  const { name, playerId, setName, suggestedName } = usePlayerName(roomId!);
   const {
     state,
+    connected,
     vote,
     reveal,
     clearVotes,
@@ -29,12 +32,43 @@ export default function RoomPage() {
     nextStory,
   } = useRoom(roomId!, name, playerId, scaleId);
 
+  const handleVote = useCallback((value: string) => {
+    setOptimisticVote(value);
+    vote(value);
+  }, [vote]);
+
+  const handleClearVotes = useCallback(() => {
+    setOptimisticVote(null);
+    clearVotes();
+  }, [clearVotes]);
+
+  const handleNextStory = useCallback(() => {
+    setOptimisticVote(null);
+    nextStory();
+  }, [nextStory]);
+
+  const handleSelectStory = useCallback((id: string) => {
+    setOptimisticVote(null);
+    selectStory(id);
+    setSidebarOpen(false);
+  }, [selectStory]);
+
+  // Clear optimistic vote when voting round changes (re-vote, next story, etc.)
+  const roundKey = `${state.currentStoryId}:${state.phase}`;
+  if (roundKey !== lastRoundKey.current) {
+    lastRoundKey.current = roundKey;
+    if (optimisticVote !== null) {
+      setOptimisticVote(null);
+    }
+  }
+
   if (!name) {
-    return <NameEntryForm onSubmit={setName} />;
+    return <NameEntryForm onSubmit={setName} suggestedName={suggestedName} />;
   }
 
   const myPlayer = state.players.find((p) => p.id === playerId);
-  const myVote = myPlayer?.vote === "hidden" ? null : myPlayer?.vote ?? null;
+  const serverVote = myPlayer?.vote === "hidden" ? null : myPlayer?.vote ?? null;
+  const myVote = serverVote ?? optimisticVote;
   const connectedPlayers = state.players.filter((p) => p.isConnected);
   const hasNextStory = state.stories.some(
     (s) => s.finalEstimate === null && s.id !== state.currentStoryId
@@ -54,6 +88,7 @@ export default function RoomPage() {
         playerCount={connectedPlayers.length}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         storyCount={state.stories.length}
+        connected={connected}
       />
       <div className="flex min-h-0 flex-1">
         {/* Sidebar — always visible on lg, toggleable on smaller */}
@@ -67,11 +102,9 @@ export default function RoomPage() {
             currentStoryId={state.currentStoryId}
             players={state.players}
             scaleName={state.scale.label}
+            error={state.lastError}
             onAdd={addStory}
-            onSelect={(id) => {
-              selectStory(id);
-              setSidebarOpen(false);
-            }}
+            onSelect={handleSelectStory}
             onRemove={removeStory}
           />
         </div>
@@ -101,7 +134,7 @@ export default function RoomPage() {
             myVote={myVote}
             phase={state.phase}
             hasCurrentStory={!!state.currentStoryId}
-            onVote={vote}
+            onVote={handleVote}
           />
           <PlayerList
             players={state.players}
@@ -120,8 +153,8 @@ export default function RoomPage() {
             players={state.players}
             hasCurrentStory={!!state.currentStoryId}
             onReveal={reveal}
-            onClear={clearVotes}
-            onNext={nextStory}
+            onClear={handleClearVotes}
+            onNext={handleNextStory}
             hasNextStory={hasNextStory}
           />
         </main>

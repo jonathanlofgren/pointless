@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useRef, useEffect } from "react";
+import { useReducer, useCallback, useRef, useEffect, useState } from "react";
 import usePartySocket from "partysocket/react";
 import type { RoomState } from "../types/room";
 import type { ServerMessage, ClientMessage } from "../types/messages";
@@ -66,6 +66,7 @@ function roomReducer(state: RoomState, msg: ServerMessage): RoomState {
       return {
         ...state,
         stories: [...state.stories, msg.story],
+        lastError: undefined,
       };
 
     case "story-selected":
@@ -96,7 +97,7 @@ function roomReducer(state: RoomState, msg: ServerMessage): RoomState {
 
     case "error":
       console.error("Server error:", msg.message);
-      return state;
+      return { ...state, lastError: msg.message };
 
     default:
       return state;
@@ -110,6 +111,7 @@ export function useRoom(
   scaleId?: string
 ) {
   const [state, dispatch] = useReducer(roomReducer, initialState);
+  const [connected, setConnected] = useState(false);
   const hasJoined = useRef(false);
 
   const socket = usePartySocket({
@@ -117,6 +119,7 @@ export function useRoom(
     room: roomId,
     query: scaleId ? { scale: scaleId } : undefined,
     onOpen() {
+      setConnected(true);
       if (playerName) {
         const msg: ClientMessage = { type: "join", name: playerName, playerId };
         socket.send(JSON.stringify(msg));
@@ -125,7 +128,20 @@ export function useRoom(
     },
     onMessage(event: MessageEvent) {
       const msg: ServerMessage = JSON.parse(event.data);
+      if (msg.type === "error" && msg.message === "Please rejoin") {
+        // Server lost our identity (e.g., after hibernation). Re-send join.
+        if (playerName) {
+          socket.send(JSON.stringify({ type: "join", name: playerName, playerId }));
+        }
+        return;
+      }
       dispatch(msg);
+    },
+    onClose() {
+      setConnected(false);
+    },
+    onError() {
+      setConnected(false);
     },
   });
 
@@ -169,6 +185,7 @@ export function useRoom(
 
   return {
     state,
+    connected,
     vote,
     reveal,
     clearVotes,

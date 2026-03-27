@@ -8,6 +8,7 @@ interface Props {
   currentStoryId: string | null;
   players: Player[];
   scaleName: string;
+  error?: string;
   onAdd: (title: string) => void;
   onSelect: (storyId: string) => void;
   onRemove: (storyId: string) => void;
@@ -18,6 +19,7 @@ export default function StoryList({
   currentStoryId,
   players,
   scaleName,
+  error,
   onAdd,
   onSelect,
   onRemove,
@@ -34,7 +36,7 @@ export default function StoryList({
         <h2 className="text-sm font-semibold text-text-muted">Stories</h2>
       </div>
 
-      <AddStoryForm onAdd={onAdd} />
+      <AddStoryForm onAdd={onAdd} error={error} />
 
       <div className="flex-1 overflow-y-auto">
         {current && (
