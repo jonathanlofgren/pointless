@@ -79,7 +79,6 @@ function nanoid(len = 8): string {
   return id;
 }
 
-// Persisted state shape (what goes into room.storage)
 interface PersistedState {
   players: [string, Player][];
   connectionToPlayer: [string, string][];
@@ -92,8 +91,6 @@ interface PersistedState {
 // --- Server ---
 
 export default class PokerRoom implements Party.Server {
-  // Hibernate lets the runtime evict this instance from memory when idle.
-  // We persist state to room.storage so it survives eviction.
   options: Party.ServerOptions = { hibernate: true };
 
   players: Map<string, Player> = new Map();
@@ -102,11 +99,10 @@ export default class PokerRoom implements Party.Server {
   currentStoryId: string | null = null;
   scale: PointScale = SCALES[0];
   phase: "voting" | "revealed" = "voting";
+  autoAdvanceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(readonly room: Party.Room) {}
 
-  // Called when the server wakes from hibernation or first starts.
-  // Restore state from durable storage.
   async onStart() {
     const saved = await this.room.storage.get<PersistedState>("state");
     if (saved) {
@@ -116,13 +112,12 @@ export default class PokerRoom implements Party.Server {
       this.currentStoryId = saved.currentStoryId;
       this.scale = saved.scale;
       this.phase = saved.phase;
-      // Mark players as connected if their connection still exists
+
       const activeConnectionIds = new Set<string>();
       for (const conn of this.room.getConnections()) {
         activeConnectionIds.add(conn.id);
       }
       for (const player of this.players.values()) {
-        // Check if any active connection maps to this player
         let connected = false;
         for (const [connId, pId] of this.connectionToPlayer) {
           if (pId === player.id && activeConnectionIds.has(connId)) {
@@ -132,7 +127,6 @@ export default class PokerRoom implements Party.Server {
         }
         player.isConnected = connected;
       }
-      // Clean up stale connection mappings
       for (const [connId] of this.connectionToPlayer) {
         if (!activeConnectionIds.has(connId)) {
           this.connectionToPlayer.delete(connId);
@@ -141,7 +135,6 @@ export default class PokerRoom implements Party.Server {
     }
   }
 
-  // Persist current state to durable storage
   async saveState() {
     const state: PersistedState = {
       players: Array.from(this.players.entries()),
@@ -154,22 +147,40 @@ export default class PokerRoom implements Party.Server {
     await this.room.storage.put("state", state);
   }
 
-  // Look up player ID from connection, or ask client to re-identify
   getPlayerId(connection: Party.Connection): string | null {
     const playerId = this.connectionToPlayer.get(connection.id);
     if (!playerId) {
-      // Connection mapping lost (e.g., after hibernation wake).
-      // Ask client to re-send join.
       this.send(connection, { type: "error", message: "Please rejoin" });
-      this.send(connection, { type: "sync", state: this.getState() });
+      this.send(connection, { type: "sync", state: this.getClientState() });
       return null;
     }
     return playerId;
   }
 
-  getState(): RoomState {
+  // Returns state safe for clients — scrubs vote values during voting phase
+  getClientState(): RoomState {
     return {
-      players: Array.from(this.players.values()),
+      players: Array.from(this.players.values()).map((p) =>
+        this.phase === "voting" && p.vote !== null
+          ? { ...p, vote: "hidden" }
+          : p
+      ),
+      stories: this.stories,
+      currentStoryId: this.currentStoryId,
+      scale: this.scale,
+      phase: this.phase,
+    };
+  }
+
+  // Returns state for a specific player — their own vote is visible, others are hidden
+  getClientStateFor(playerId: string): RoomState {
+    return {
+      players: Array.from(this.players.values()).map((p) => {
+        if (this.phase === "voting" && p.vote !== null && p.id !== playerId) {
+          return { ...p, vote: "hidden" };
+        }
+        return p;
+      }),
       stories: this.stories,
       currentStoryId: this.currentStoryId,
       scale: this.scale,
@@ -185,16 +196,34 @@ export default class PokerRoom implements Party.Server {
     connection.send(JSON.stringify(msg));
   }
 
+  private clearAllVotes() {
+    this.phase = "voting";
+    for (const player of this.players.values()) {
+      player.vote = null;
+    }
+  }
+
+  private findNextPendingStory(excludeId?: string): Story | undefined {
+    return this.stories.find(
+      (s) => s.finalEstimate === null && s.id !== (excludeId ?? this.currentStoryId)
+    );
+  }
+
+  private cancelAutoAdvance() {
+    if (this.autoAdvanceTimer) {
+      clearTimeout(this.autoAdvanceTimer);
+      this.autoAdvanceTimer = null;
+    }
+  }
+
   onConnect(connection: Party.Connection, ctx: Party.ConnectionContext) {
-    // Set scale from query param if this is the first connection (room creator)
     const url = new URL(ctx.request.url);
     const scaleParam = url.searchParams.get("scale");
     if (scaleParam && this.players.size === 0) {
       this.scale = getScaleById(scaleParam);
     }
 
-    // Send full state sync
-    this.send(connection, { type: "sync", state: this.getState() });
+    this.send(connection, { type: "sync", state: this.getClientState() });
   }
 
   onMessage(message: string, sender: Party.Connection) {
@@ -245,10 +274,13 @@ export default class PokerRoom implements Party.Server {
     if (playerId) {
       const player = this.players.get(playerId);
       if (player) {
-        // Only mark disconnected if no other connection maps to this player
-        const hasOtherConnection = Array.from(this.connectionToPlayer.entries()).some(
-          ([connId, pId]) => pId === playerId && connId !== connection.id
-        );
+        let hasOtherConnection = false;
+        for (const [connId, pId] of this.connectionToPlayer) {
+          if (pId === playerId && connId !== connection.id) {
+            hasOtherConnection = true;
+            break;
+          }
+        }
         if (!hasOtherConnection) {
           player.isConnected = false;
           this.broadcast({ type: "player-left", playerId });
@@ -271,8 +303,8 @@ export default class PokerRoom implements Party.Server {
       existing.name = name;
       existing.isConnected = true;
       this.connectionToPlayer.set(connection.id, playerId);
-      this.send(connection, { type: "sync", state: this.getState() });
-      this.broadcast({ type: "player-joined", player: existing }, [connection.id]);
+      this.send(connection, { type: "sync", state: this.getClientStateFor(playerId) });
+      this.broadcast({ type: "player-joined", player: { ...existing, vote: existing.vote ? "hidden" : null } }, [connection.id]);
     } else {
       const player: Player = {
         id: playerId,
@@ -282,7 +314,7 @@ export default class PokerRoom implements Party.Server {
       };
       this.players.set(playerId, player);
       this.connectionToPlayer.set(connection.id, playerId);
-      this.send(connection, { type: "sync", state: this.getState() });
+      this.send(connection, { type: "sync", state: this.getClientStateFor(playerId) });
       this.broadcast({ type: "player-joined", player }, [connection.id]);
     }
     this.saveState();
@@ -298,9 +330,13 @@ export default class PokerRoom implements Party.Server {
     const player = this.players.get(playerId);
     if (!player) return;
 
+    // Validate vote value against the scale
+    if (!this.scale.values.includes(value)) return;
+
     player.vote = value;
     this.broadcast({ type: "player-voted", playerId }, [sender.id]);
-    this.send(sender, { type: "sync", state: this.getState() });
+    // Send voter their own state (they can see their own vote, others hidden)
+    this.send(sender, { type: "sync", state: this.getClientStateFor(playerId) });
     this.saveState();
   }
 
@@ -332,10 +368,8 @@ export default class PokerRoom implements Party.Server {
   }
 
   handleClearVotes() {
-    this.phase = "voting";
-    for (const player of this.players.values()) {
-      player.vote = null;
-    }
+    this.cancelAutoAdvance();
+    this.clearAllVotes();
     this.broadcast({ type: "votes-cleared" });
     this.saveState();
   }
@@ -371,11 +405,9 @@ export default class PokerRoom implements Party.Server {
     const story = this.stories.find((s) => s.id === storyId);
     if (!story) return;
 
+    this.cancelAutoAdvance();
     this.currentStoryId = storyId;
-    this.phase = "voting";
-    for (const player of this.players.values()) {
-      player.vote = null;
-    }
+    this.clearAllVotes();
 
     this.broadcast({ type: "story-selected", storyId });
     this.broadcast({ type: "votes-cleared" });
@@ -392,20 +424,17 @@ export default class PokerRoom implements Party.Server {
 
     // Auto-advance after a short delay so everyone sees the agreed estimate
     if (this.currentStoryId === storyId) {
-      setTimeout(() => {
-        // Re-check in case state changed during the delay
+      this.cancelAutoAdvance();
+      this.autoAdvanceTimer = setTimeout(() => {
+        this.autoAdvanceTimer = null;
         if (this.currentStoryId !== storyId) return;
-        const nextStory = this.stories.find(
-          (s) => s.finalEstimate === null && s.id !== storyId
-        );
+
+        const nextStory = this.findNextPendingStory(storyId);
         if (nextStory) {
           this.handleSelectStory(nextStory.id);
         } else {
           this.currentStoryId = null;
-          this.phase = "voting";
-          for (const player of this.players.values()) {
-            player.vote = null;
-          }
+          this.clearAllVotes();
           this.broadcast({ type: "story-selected", storyId: "" });
           this.broadcast({ type: "votes-cleared" });
           this.saveState();
@@ -418,11 +447,9 @@ export default class PokerRoom implements Party.Server {
     this.stories = this.stories.filter((s) => s.id !== storyId);
 
     if (this.currentStoryId === storyId) {
+      this.cancelAutoAdvance();
       this.currentStoryId = null;
-      this.phase = "voting";
-      for (const player of this.players.values()) {
-        player.vote = null;
-      }
+      this.clearAllVotes();
     }
 
     this.broadcast({ type: "story-removed", storyId });
@@ -433,7 +460,6 @@ export default class PokerRoom implements Party.Server {
     const story = this.stories.find((s) => s.id === storyId);
     if (!story) return;
 
-    // Clear the estimate and re-enter voting for this story
     story.finalEstimate = null;
     story.votes = {};
     this.broadcast({ type: "story-estimated", storyId, value: "" });
@@ -441,10 +467,7 @@ export default class PokerRoom implements Party.Server {
   }
 
   handleNextStory() {
-    const nextStory = this.stories.find(
-      (s) => s.finalEstimate === null && s.id !== this.currentStoryId
-    );
-
+    const nextStory = this.findNextPendingStory();
     if (nextStory) {
       this.handleSelectStory(nextStory.id);
     }

@@ -44,8 +44,12 @@ export default function RoomPage() {
     clearVotes();
   }, [clearVotes]);
 
+  // Use a ref to access stories without making callbacks depend on it
+  const storiesRef = useRef(state.stories);
+  storiesRef.current = state.stories;
+
   const handleSelectStory = useCallback((id: string) => {
-    const story = state.stories.find((s) => s.id === id);
+    const story = storiesRef.current.find((s) => s.id === id);
     if (story?.finalEstimate !== null) {
       setViewingStoryId(id);
       setSidebarOpen(false);
@@ -55,18 +59,13 @@ export default function RoomPage() {
       selectStory(id);
       setSidebarOpen(false);
     }
-  }, [selectStory, state.stories]);
+  }, [selectStory]);
 
   const handleReEstimate = useCallback((storyId: string) => {
     setOptimisticVote(null);
     setViewingStoryId(null);
     reEstimate(storyId);
   }, [reEstimate]);
-
-  const handleSetEstimate = useCallback((storyId: string, value: string) => {
-    setEstimate(storyId, value);
-    // Server will auto-advance to next story
-  }, [setEstimate]);
 
   // Clear optimistic vote when voting round changes
   const roundKey = `${state.currentStoryId}:${state.phase}`;
@@ -198,7 +197,7 @@ export default function RoomPage() {
                 phase={state.phase}
                 scaleValues={state.scale.values}
                 currentStoryId={state.currentStoryId}
-                onSetEstimate={handleSetEstimate}
+                onSetEstimate={setEstimate}
               />
               <RevealButton
                 phase={state.phase}

@@ -1,8 +1,5 @@
-export interface PointScale {
-  id: string;
-  label: string;
-  values: string[];
-}
+import type { PointScale } from "../types/room";
+export type { PointScale };
 
 export const SCALES: PointScale[] = [
   {

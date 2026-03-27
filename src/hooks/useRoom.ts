@@ -87,15 +87,18 @@ function roomReducer(state: RoomState, msg: ServerMessage): RoomState {
         ),
       };
 
-    case "story-removed":
+    case "story-removed": {
+      const wasCurrentStory = state.currentStoryId === msg.storyId;
       return {
         ...state,
         stories: state.stories.filter((s) => s.id !== msg.storyId),
-        currentStoryId:
-          state.currentStoryId === msg.storyId
-            ? null
-            : state.currentStoryId,
+        currentStoryId: wasCurrentStory ? null : state.currentStoryId,
+        phase: wasCurrentStory ? "voting" as const : state.phase,
+        players: wasCurrentStory
+          ? state.players.map((p) => ({ ...p, vote: null }))
+          : state.players,
       };
+    }
 
     case "error":
       console.error("Server error:", msg.message);
@@ -135,7 +138,12 @@ export function useRoom(
       }
     },
     onMessage(event: MessageEvent) {
-      const msg: ServerMessage = JSON.parse(event.data);
+      let msg: ServerMessage;
+      try {
+        msg = JSON.parse(event.data);
+      } catch {
+        return;
+      }
       if (msg.type === "error" && msg.message === "Please rejoin") {
         if (playerName) {
           socket.send(JSON.stringify({ type: "join", name: playerName, playerId }));
@@ -165,6 +173,15 @@ export function useRoom(
       hasJoined.current = true;
     }
   }, [playerName, playerId, socket]);
+
+  // Cleanup disconnect timer on unmount
+  useEffect(() => {
+    return () => {
+      if (disconnectTimer.current) {
+        clearTimeout(disconnectTimer.current);
+      }
+    };
+  }, []);
 
   const send = useCallback(
     (msg: ClientMessage) => {
