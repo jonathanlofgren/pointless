@@ -30,26 +30,25 @@ export default function ResultsSummary({
       ? numericVotes.reduce((a, b) => a + b, 0) / numericVotes.length
       : null;
 
-  // Find the closest scale value to the average
   const estimateOptions = scaleValues.filter(
     (v) => v !== "?" && v !== "pass"
   );
 
   return (
-    <div className="flex flex-col items-center gap-3 border-t border-surface-lighter py-4">
+    <div className="flex flex-col items-center gap-4 border-t border-surface-lighter py-6">
       {average !== null && (
-        <p className="text-sm text-text-muted">
-          Average: <span className="font-bold text-white">{average.toFixed(1)}</span>
+        <p className="text-lg text-text-muted">
+          Average: <span className="text-2xl font-bold text-white">{average.toFixed(1)}</span>
         </p>
       )}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-text-muted">Set estimate:</span>
-        <div className="flex gap-1">
+      <div className="flex flex-col items-center gap-2">
+        <span className="text-sm font-medium text-text-muted">Set estimate</span>
+        <div className="flex flex-wrap justify-center gap-2">
           {estimateOptions.map((value) => (
             <button
               key={value}
               onClick={() => onSetEstimate(currentStoryId, value)}
-              className="rounded border border-surface-lighter px-2 py-1 text-xs text-text-muted transition-colors hover:border-primary hover:text-white"
+              className="flex h-12 w-12 items-center justify-center rounded-lg border-2 border-surface-lighter text-lg font-bold text-text-muted transition-all hover:border-primary hover:bg-primary/10 hover:text-white"
             >
               {value}
             </button>

@@ -12,7 +12,7 @@ export default function PlayerList({ players, phase, currentPlayerId }: Props) {
   if (connected.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap justify-center gap-3 px-4 py-4">
+    <div className="flex flex-wrap justify-center gap-4 px-4 py-6">
       {connected.map((player) => {
         const isMe = player.id === currentPlayerId;
         const hasVoted = player.vote !== null;
@@ -21,10 +21,10 @@ export default function PlayerList({ players, phase, currentPlayerId }: Props) {
         return (
           <div
             key={player.id}
-            className="flex flex-col items-center gap-1"
+            className="flex flex-col items-center gap-2"
           >
             <div
-              className={`flex h-12 w-12 items-center justify-center rounded-lg border-2 text-sm font-bold transition-all ${
+              className={`flex h-16 w-16 items-center justify-center rounded-xl border-2 text-xl font-bold transition-all ${
                 showVote
                   ? "animate-card-reveal border-primary bg-primary/20 text-white"
                   : hasVoted
@@ -41,7 +41,7 @@ export default function PlayerList({ players, phase, currentPlayerId }: Props) {
                   : "·"}
             </div>
             <span
-              className={`max-w-16 truncate text-xs ${
+              className={`max-w-36 truncate text-sm ${
                 isMe ? "font-bold text-primary" : "text-text-muted"
               }`}
             >
