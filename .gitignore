@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .partykit/*
+.vercel
 test-results/*
 
 # Editor directories and files
