@@ -39,7 +39,8 @@ type ClientMessage =
   | { type: "select-story"; storyId: string }
   | { type: "set-estimate"; storyId: string; value: string }
   | { type: "remove-story"; storyId: string }
-  | { type: "next-story" };
+  | { type: "next-story" }
+  | { type: "re-estimate"; storyId: string };
 
 type ServerMessage =
   | { type: "sync"; state: RoomState }
@@ -233,6 +234,9 @@ export default class PokerRoom implements Party.Server {
       case "next-story":
         this.handleNextStory();
         break;
+      case "re-estimate":
+        this.handleReEstimate(msg.storyId);
+        break;
     }
   }
 
@@ -384,7 +388,28 @@ export default class PokerRoom implements Party.Server {
 
     story.finalEstimate = value;
     this.broadcast({ type: "story-estimated", storyId, value });
-    this.saveState();
+
+    // Auto-advance to next unestimated story
+    if (this.currentStoryId === storyId) {
+      const nextStory = this.stories.find(
+        (s) => s.finalEstimate === null && s.id !== storyId
+      );
+      if (nextStory) {
+        this.handleSelectStory(nextStory.id);
+      } else {
+        // No more stories — clear current
+        this.currentStoryId = null;
+        this.phase = "voting";
+        for (const player of this.players.values()) {
+          player.vote = null;
+        }
+        this.broadcast({ type: "story-selected", storyId: "" });
+        this.broadcast({ type: "votes-cleared" });
+        this.saveState();
+      }
+    } else {
+      this.saveState();
+    }
   }
 
   handleRemoveStory(storyId: string) {
@@ -400,6 +425,17 @@ export default class PokerRoom implements Party.Server {
 
     this.broadcast({ type: "story-removed", storyId });
     this.saveState();
+  }
+
+  handleReEstimate(storyId: string) {
+    const story = this.stories.find((s) => s.id === storyId);
+    if (!story) return;
+
+    // Clear the estimate and re-enter voting for this story
+    story.finalEstimate = null;
+    story.votes = {};
+    this.broadcast({ type: "story-estimated", storyId, value: "" });
+    this.handleSelectStory(storyId);
   }
 
   handleNextStory() {

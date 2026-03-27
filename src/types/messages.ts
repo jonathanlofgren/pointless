@@ -10,7 +10,8 @@ export type ClientMessage =
   | { type: "select-story"; storyId: string }
   | { type: "set-estimate"; storyId: string; value: string }
   | { type: "remove-story"; storyId: string }
-  | { type: "next-story" };
+  | { type: "next-story" }
+  | { type: "re-estimate"; storyId: string };
 
 // Server -> Client
 export type ServerMessage =

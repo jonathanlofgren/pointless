@@ -6,6 +6,7 @@ import AddStoryForm from "./AddStoryForm";
 interface Props {
   stories: Story[];
   currentStoryId: string | null;
+  viewingStoryId: string | null;
   players: Player[];
   scaleName: string;
   error?: string;
@@ -17,6 +18,7 @@ interface Props {
 export default function StoryList({
   stories,
   currentStoryId,
+  viewingStoryId,
   players,
   scaleName,
   error,
@@ -80,6 +82,7 @@ export default function StoryList({
                 key={story.id}
                 story={story}
                 isCurrent={false}
+                isViewing={story.id === viewingStoryId}
                 onSelect={onSelect}
                 onRemove={onRemove}
               />
@@ -142,11 +145,13 @@ function ExportButton({ stories, players, scaleName }: { stories: Story[]; playe
 function StoryItem({
   story,
   isCurrent,
+  isViewing,
   onSelect,
   onRemove,
 }: {
   story: Story;
   isCurrent: boolean;
+  isViewing?: boolean;
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
@@ -155,9 +160,11 @@ function StoryItem({
       className={`group mb-1 flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors ${
         isCurrent
           ? "bg-accent/10 text-accent"
-          : story.finalEstimate !== null
-            ? "text-text-muted"
-            : "cursor-pointer text-text hover:bg-surface-lighter"
+          : isViewing
+            ? "bg-primary/10 text-primary"
+            : story.finalEstimate !== null
+              ? "cursor-pointer text-text-muted hover:bg-surface-lighter"
+              : "cursor-pointer text-text hover:bg-surface-lighter"
       }`}
       onClick={() => !isCurrent && onSelect(story.id)}
     >

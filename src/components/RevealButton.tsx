@@ -6,8 +6,6 @@ interface Props {
   hasCurrentStory: boolean;
   onReveal: () => void;
   onClear: () => void;
-  onNext: () => void;
-  hasNextStory: boolean;
 }
 
 export default function RevealButton({
@@ -16,8 +14,6 @@ export default function RevealButton({
   hasCurrentStory,
   onReveal,
   onClear,
-  onNext,
-  hasNextStory,
 }: Props) {
   if (!hasCurrentStory) return null;
 
@@ -50,14 +46,6 @@ export default function RevealButton({
       >
         Re-vote
       </button>
-      {hasNextStory && (
-        <button
-          onClick={onNext}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
-        >
-          Next Story
-        </button>
-      )}
     </div>
   );
 }

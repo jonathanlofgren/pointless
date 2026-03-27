@@ -9,6 +9,7 @@ import VotingArea from "../components/VotingArea";
 import PlayerList from "../components/PlayerList";
 import RevealButton from "../components/RevealButton";
 import ResultsSummary from "../components/ResultsSummary";
+import CompletedStoryView from "../components/CompletedStoryView";
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -16,6 +17,7 @@ export default function RoomPage() {
   const scaleId = searchParams.get("scale") ?? undefined;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [optimisticVote, setOptimisticVote] = useState<string | null>(null);
+  const [viewingStoryId, setViewingStoryId] = useState<string | null>(null);
   const lastRoundKey = useRef("");
 
   const { name, playerId, setName, suggestedName } = usePlayerName(roomId!);
@@ -29,7 +31,7 @@ export default function RoomPage() {
     selectStory,
     setEstimate,
     removeStory,
-    nextStory,
+    reEstimate,
   } = useRoom(roomId!, name, playerId, scaleId);
 
   const handleVote = useCallback((value: string) => {
@@ -42,23 +44,44 @@ export default function RoomPage() {
     clearVotes();
   }, [clearVotes]);
 
-  const handleNextStory = useCallback(() => {
-    setOptimisticVote(null);
-    nextStory();
-  }, [nextStory]);
-
   const handleSelectStory = useCallback((id: string) => {
-    setOptimisticVote(null);
-    selectStory(id);
-    setSidebarOpen(false);
-  }, [selectStory]);
+    const story = state.stories.find((s) => s.id === id);
+    if (story?.finalEstimate !== null) {
+      setViewingStoryId(id);
+      setSidebarOpen(false);
+    } else {
+      setOptimisticVote(null);
+      setViewingStoryId(null);
+      selectStory(id);
+      setSidebarOpen(false);
+    }
+  }, [selectStory, state.stories]);
 
-  // Clear optimistic vote when voting round changes (re-vote, next story, etc.)
+  const handleReEstimate = useCallback((storyId: string) => {
+    setOptimisticVote(null);
+    setViewingStoryId(null);
+    reEstimate(storyId);
+  }, [reEstimate]);
+
+  const handleSetEstimate = useCallback((storyId: string, value: string) => {
+    setEstimate(storyId, value);
+    // Server will auto-advance to next story
+  }, [setEstimate]);
+
+  // Clear optimistic vote when voting round changes
   const roundKey = `${state.currentStoryId}:${state.phase}`;
   if (roundKey !== lastRoundKey.current) {
     lastRoundKey.current = roundKey;
     if (optimisticVote !== null) {
       setOptimisticVote(null);
+    }
+  }
+
+  // If viewing a completed story that got re-estimated, clear the viewing state
+  if (viewingStoryId) {
+    const vs = state.stories.find((s) => s.id === viewingStoryId);
+    if (!vs || vs.finalEstimate === null) {
+      setViewingStoryId(null);
     }
   }
 
@@ -70,13 +93,16 @@ export default function RoomPage() {
   const serverVote = myPlayer?.vote === "hidden" ? null : myPlayer?.vote ?? null;
   const myVote = serverVote ?? optimisticVote;
   const connectedPlayers = state.players.filter((p) => p.isConnected);
-  const hasNextStory = state.stories.some(
-    (s) => s.finalEstimate === null && s.id !== state.currentStoryId
-  );
 
   const currentStory = state.stories.find(
     (s) => s.id === state.currentStoryId
   );
+  const viewingStory = viewingStoryId
+    ? state.stories.find((s) => s.id === viewingStoryId)
+    : null;
+
+  const displayStory = viewingStory ?? currentStory;
+  const isViewingCompleted = !!viewingStory && viewingStory.finalEstimate !== null;
 
   const completedCount = state.stories.filter((s) => s.finalEstimate !== null).length;
 
@@ -91,7 +117,6 @@ export default function RoomPage() {
         connected={connected}
       />
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar — always visible on lg, toggleable on smaller */}
         <div
           className={`${
             sidebarOpen ? "block" : "hidden"
@@ -100,6 +125,7 @@ export default function RoomPage() {
           <StoryList
             stories={state.stories}
             currentStoryId={state.currentStoryId}
+            viewingStoryId={viewingStoryId}
             players={state.players}
             scaleName={state.scale.label}
             error={state.lastError}
@@ -108,7 +134,6 @@ export default function RoomPage() {
             onRemove={removeStory}
           />
         </div>
-        {/* Overlay for mobile sidebar */}
         {sidebarOpen && (
           <div
             className="fixed inset-0 z-30 bg-black/40 lg:hidden"
@@ -117,46 +142,63 @@ export default function RoomPage() {
         )}
 
         <main className="flex min-w-0 flex-1 flex-col">
-          {currentStory && (
+          {displayStory && (
             <div className="border-b border-surface-lighter px-4 py-3">
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">{currentStory.title}</h2>
-                {completedCount > 0 && (
+                <h2 className="text-lg font-semibold">{displayStory.title}</h2>
+                {completedCount > 0 && !isViewingCompleted && (
                   <span className="text-xs text-text-muted">
                     ({completedCount}/{state.stories.length} estimated)
                   </span>
                 )}
+                {isViewingCompleted && (
+                  <button
+                    onClick={() => setViewingStoryId(null)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Back to voting
+                  </button>
+                )}
               </div>
             </div>
           )}
-          <VotingArea
-            scale={state.scale.values}
-            myVote={myVote}
-            phase={state.phase}
-            hasCurrentStory={!!state.currentStoryId}
-            onVote={handleVote}
-          />
-          <PlayerList
-            players={state.players}
-            phase={state.phase}
-            currentPlayerId={playerId}
-          />
-          <ResultsSummary
-            players={state.players}
-            phase={state.phase}
-            scaleValues={state.scale.values}
-            currentStoryId={state.currentStoryId}
-            onSetEstimate={setEstimate}
-          />
-          <RevealButton
-            phase={state.phase}
-            players={state.players}
-            hasCurrentStory={!!state.currentStoryId}
-            onReveal={reveal}
-            onClear={handleClearVotes}
-            onNext={handleNextStory}
-            hasNextStory={hasNextStory}
-          />
+
+          {isViewingCompleted && viewingStory ? (
+            <CompletedStoryView
+              story={viewingStory}
+              players={state.players}
+              onReEstimate={handleReEstimate}
+            />
+          ) : (
+            <>
+              <VotingArea
+                scale={state.scale.values}
+                myVote={myVote}
+                phase={state.phase}
+                hasCurrentStory={!!state.currentStoryId}
+                onVote={handleVote}
+              />
+              <PlayerList
+                players={state.players}
+                phase={state.phase}
+                currentPlayerId={playerId}
+              />
+              <ResultsSummary
+                players={state.players}
+                phase={state.phase}
+                scaleValues={state.scale.values}
+                currentStoryId={state.currentStoryId}
+                onSetEstimate={handleSetEstimate}
+              />
+              <RevealButton
+                phase={state.phase}
+                players={state.players}
+                hasCurrentStory={!!state.currentStoryId}
+                onReveal={reveal}
+                onClear={handleClearVotes}
+              />
+            </>
+          )}
         </main>
       </div>
     </div>

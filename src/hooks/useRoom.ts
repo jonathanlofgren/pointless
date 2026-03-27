@@ -72,7 +72,7 @@ function roomReducer(state: RoomState, msg: ServerMessage): RoomState {
     case "story-selected":
       return {
         ...state,
-        currentStoryId: msg.storyId,
+        currentStoryId: msg.storyId || null,
         phase: "voting",
         players: state.players.map((p) => ({ ...p, vote: null })),
       };
@@ -81,7 +81,9 @@ function roomReducer(state: RoomState, msg: ServerMessage): RoomState {
       return {
         ...state,
         stories: state.stories.map((s) =>
-          s.id === msg.storyId ? { ...s, finalEstimate: msg.value } : s
+          s.id === msg.storyId
+            ? { ...s, finalEstimate: msg.value || null }
+            : s
         ),
       };
 
@@ -113,12 +115,18 @@ export function useRoom(
   const [state, dispatch] = useReducer(roomReducer, initialState);
   const [connected, setConnected] = useState(false);
   const hasJoined = useRef(false);
+  const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const socket = usePartySocket({
     host: PARTYKIT_HOST,
     room: roomId,
     query: scaleId ? { scale: scaleId } : undefined,
     onOpen() {
+      // Clear any pending disconnect indicator
+      if (disconnectTimer.current) {
+        clearTimeout(disconnectTimer.current);
+        disconnectTimer.current = null;
+      }
       setConnected(true);
       if (playerName) {
         const msg: ClientMessage = { type: "join", name: playerName, playerId };
@@ -129,7 +137,6 @@ export function useRoom(
     onMessage(event: MessageEvent) {
       const msg: ServerMessage = JSON.parse(event.data);
       if (msg.type === "error" && msg.message === "Please rejoin") {
-        // Server lost our identity (e.g., after hibernation). Re-send join.
         if (playerName) {
           socket.send(JSON.stringify({ type: "join", name: playerName, playerId }));
         }
@@ -138,10 +145,15 @@ export function useRoom(
       dispatch(msg);
     },
     onClose() {
-      setConnected(false);
+      // Only show "Reconnecting" after 2s — brief drops during hibernation wake are normal
+      if (!disconnectTimer.current) {
+        disconnectTimer.current = setTimeout(() => setConnected(false), 2000);
+      }
     },
     onError() {
-      setConnected(false);
+      if (!disconnectTimer.current) {
+        disconnectTimer.current = setTimeout(() => setConnected(false), 2000);
+      }
     },
   });
 
@@ -182,6 +194,10 @@ export function useRoom(
     [send]
   );
   const nextStory = useCallback(() => send({ type: "next-story" }), [send]);
+  const reEstimate = useCallback(
+    (storyId: string) => send({ type: "re-estimate", storyId }),
+    [send]
+  );
 
   return {
     state,
@@ -194,5 +210,6 @@ export function useRoom(
     setEstimate,
     removeStory,
     nextStory,
+    reEstimate,
   };
 }
