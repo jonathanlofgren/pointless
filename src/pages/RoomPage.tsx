@@ -169,6 +169,16 @@ export default function RoomPage() {
               players={state.players}
               onReEstimate={handleReEstimate}
             />
+          ) : currentStory?.finalEstimate ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3">
+              <span className="text-sm font-medium uppercase tracking-wider text-success">
+                Agreed Estimate
+              </span>
+              <span className="flex h-28 w-28 items-center justify-center rounded-2xl border-4 border-success bg-success/10 text-5xl font-bold text-success">
+                {currentStory.finalEstimate}
+              </span>
+              <span className="text-sm text-text-muted">Moving to next story...</span>
+            </div>
           ) : (
             <>
               <VotingArea

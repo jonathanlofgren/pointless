@@ -388,27 +388,29 @@ export default class PokerRoom implements Party.Server {
 
     story.finalEstimate = value;
     this.broadcast({ type: "story-estimated", storyId, value });
+    this.saveState();
 
-    // Auto-advance to next unestimated story
+    // Auto-advance after a short delay so everyone sees the agreed estimate
     if (this.currentStoryId === storyId) {
-      const nextStory = this.stories.find(
-        (s) => s.finalEstimate === null && s.id !== storyId
-      );
-      if (nextStory) {
-        this.handleSelectStory(nextStory.id);
-      } else {
-        // No more stories — clear current
-        this.currentStoryId = null;
-        this.phase = "voting";
-        for (const player of this.players.values()) {
-          player.vote = null;
+      setTimeout(() => {
+        // Re-check in case state changed during the delay
+        if (this.currentStoryId !== storyId) return;
+        const nextStory = this.stories.find(
+          (s) => s.finalEstimate === null && s.id !== storyId
+        );
+        if (nextStory) {
+          this.handleSelectStory(nextStory.id);
+        } else {
+          this.currentStoryId = null;
+          this.phase = "voting";
+          for (const player of this.players.values()) {
+            player.vote = null;
+          }
+          this.broadcast({ type: "story-selected", storyId: "" });
+          this.broadcast({ type: "votes-cleared" });
+          this.saveState();
         }
-        this.broadcast({ type: "story-selected", storyId: "" });
-        this.broadcast({ type: "votes-cleared" });
-        this.saveState();
-      }
-    } else {
-      this.saveState();
+      }, 2000);
     }
   }
 
