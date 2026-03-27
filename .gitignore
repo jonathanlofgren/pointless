@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .partykit/*
+test-results/*
 
 # Editor directories and files
 .vscode/*
