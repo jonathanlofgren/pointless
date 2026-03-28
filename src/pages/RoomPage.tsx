@@ -118,6 +118,9 @@ export default function RoomPage() {
           className={`${
             sidebarOpen ? "block" : "hidden"
           } absolute inset-y-0 left-0 z-40 w-72 pt-[53px] lg:relative lg:block lg:pt-0`}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSidebarOpen(false);
+          }}
         >
           <StoryList
             stories={state.stories}
