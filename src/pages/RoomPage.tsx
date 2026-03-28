@@ -109,10 +109,8 @@ export default function RoomPage() {
     <div className="flex h-dvh flex-col">
       <RoomHeader
         roomId={roomId!}
-        scale={state.scale}
         playerCount={connectedPlayers.length}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        storyCount={state.stories.length}
         connected={connected}
       />
       <div className="flex min-h-0 flex-1">
