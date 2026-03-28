@@ -3,12 +3,14 @@ import type { Story, Player } from "../types/room";
 interface Props {
   story: Story;
   players: Player[];
+  isOwner: boolean;
   onReEstimate: (storyId: string) => void;
 }
 
 export default function CompletedStoryView({
   story,
   players,
+  isOwner,
   onReEstimate,
 }: Props) {
   const playerMap = new Map(players.map((p) => [p.id, p.name]));
@@ -58,12 +60,14 @@ export default function CompletedStoryView({
         </div>
       )}
 
-      <button
-        onClick={() => onReEstimate(story.id)}
-        className="rounded-lg border border-surface-lighter px-4 py-2 text-sm text-text-muted transition-colors hover:border-primary hover:text-white"
-      >
-        Re-estimate this story
-      </button>
+      {isOwner && (
+        <button
+          onClick={() => onReEstimate(story.id)}
+          className="rounded-lg border border-surface-lighter px-4 py-2 text-sm text-text-muted transition-colors hover:border-primary hover:text-white"
+        >
+          Re-estimate this story
+        </button>
+      )}
     </div>
   );
 }

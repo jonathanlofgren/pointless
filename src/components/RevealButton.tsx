@@ -4,6 +4,7 @@ interface Props {
   phase: "voting" | "revealed";
   players: Player[];
   hasCurrentStory: boolean;
+  isOwner: boolean;
   onReveal: () => void;
   onClear: () => void;
 }
@@ -12,6 +13,7 @@ export default function RevealButton({
   phase,
   players,
   hasCurrentStory,
+  isOwner,
   onReveal,
   onClear,
 }: Props) {
@@ -27,16 +29,20 @@ export default function RevealButton({
         <span className="text-xs text-text-muted">
           {votedCount}/{totalCount} voted
         </span>
-        <button
-          onClick={onReveal}
-          disabled={votedCount === 0}
-          className="rounded-lg bg-accent px-6 py-2 font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-40"
-        >
-          Reveal Cards
-        </button>
+        {isOwner && (
+          <button
+            onClick={onReveal}
+            disabled={votedCount === 0}
+            className="rounded-lg bg-accent px-6 py-2 font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-40"
+          >
+            Reveal Cards
+          </button>
+        )}
       </div>
     );
   }
+
+  if (!isOwner) return null;
 
   return (
     <div className="flex items-center justify-center gap-3 pb-4">

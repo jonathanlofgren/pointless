@@ -5,6 +5,7 @@ interface Props {
   phase: "voting" | "revealed";
   scaleValues: string[];
   currentStoryId: string | null;
+  isOwner: boolean;
   onSetEstimate: (storyId: string, value: string) => void;
 }
 
@@ -13,6 +14,7 @@ export default function ResultsSummary({
   phase,
   scaleValues,
   currentStoryId,
+  isOwner,
   onSetEstimate,
 }: Props) {
   if (phase !== "revealed" || !currentStoryId) return null;
@@ -41,20 +43,22 @@ export default function ResultsSummary({
           Average: <span className="text-2xl font-bold text-white">{average.toFixed(1)}</span>
         </p>
       )}
-      <div className="flex flex-col items-center gap-2">
-        <span className="text-sm font-medium text-text-muted">Set estimate</span>
-        <div className="flex flex-wrap justify-center gap-2">
-          {estimateOptions.map((value) => (
-            <button
-              key={value}
-              onClick={() => onSetEstimate(currentStoryId, value)}
-              className="flex h-12 w-12 items-center justify-center rounded-lg border-2 border-surface-lighter text-lg font-bold text-text-muted transition-all hover:border-primary hover:bg-primary/10 hover:text-white"
-            >
-              {value}
-            </button>
-          ))}
+      {isOwner && (
+        <div className="flex flex-col items-center gap-2">
+          <span className="text-sm font-medium text-text-muted">Set estimate</span>
+          <div className="flex flex-wrap justify-center gap-2">
+            {estimateOptions.map((value) => (
+              <button
+                key={value}
+                onClick={() => onSetEstimate(currentStoryId, value)}
+                className="flex h-12 w-12 items-center justify-center rounded-lg border-2 border-surface-lighter text-lg font-bold text-text-muted transition-all hover:border-primary hover:bg-primary/10 hover:text-white"
+              >
+                {value}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

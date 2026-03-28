@@ -10,6 +10,7 @@ interface Props {
   players: Player[];
   scaleName: string;
   error?: string;
+  isOwner: boolean;
   onAdd: (title: string) => void;
   onSelect: (storyId: string) => void;
   onRemove: (storyId: string) => void;
@@ -22,6 +23,7 @@ export default function StoryList({
   players,
   scaleName,
   error,
+  isOwner,
   onAdd,
   onSelect,
   onRemove,
@@ -49,6 +51,7 @@ export default function StoryList({
             <StoryItem
               story={current}
               isCurrent
+              isOwner={isOwner}
               onSelect={onSelect}
               onRemove={onRemove}
             />
@@ -65,6 +68,7 @@ export default function StoryList({
                 key={story.id}
                 story={story}
                 isCurrent={false}
+                isOwner={isOwner}
                 onSelect={onSelect}
                 onRemove={onRemove}
               />
@@ -83,6 +87,7 @@ export default function StoryList({
                 story={story}
                 isCurrent={false}
                 isViewing={story.id === viewingStoryId}
+                isOwner={isOwner}
                 onSelect={onSelect}
                 onRemove={onRemove}
               />
@@ -146,15 +151,20 @@ function StoryItem({
   story,
   isCurrent,
   isViewing,
+  isOwner,
   onSelect,
   onRemove,
 }: {
   story: Story;
   isCurrent: boolean;
   isViewing?: boolean;
+  isOwner: boolean;
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
+  const isCompleted = story.finalEstimate !== null;
+  const isClickable = !isCurrent && (isCompleted || isOwner);
+
   return (
     <div
       className={`group mb-1 flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors ${
@@ -162,28 +172,32 @@ function StoryItem({
           ? "bg-accent/10 text-accent"
           : isViewing
             ? "bg-primary/10 text-primary"
-            : story.finalEstimate !== null
-              ? "cursor-pointer text-text-muted hover:bg-surface-lighter"
-              : "cursor-pointer text-text hover:bg-surface-lighter"
+            : isClickable
+              ? isCompleted
+                ? "cursor-pointer text-text-muted hover:bg-surface-lighter"
+                : "cursor-pointer text-text hover:bg-surface-lighter"
+              : "text-text"
       }`}
-      onClick={() => !isCurrent && onSelect(story.id)}
+      onClick={() => isClickable && onSelect(story.id)}
     >
       <span className="min-w-0 flex-1 truncate">{story.title}</span>
-      {story.finalEstimate !== null && (
+      {isCompleted && (
         <span className="rounded bg-success/20 px-1.5 py-0.5 text-xs font-bold text-success">
           {story.finalEstimate}
         </span>
       )}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove(story.id);
-        }}
-        className="hidden rounded text-text-muted hover:text-danger group-hover:block"
-        title="Remove story"
-      >
-        &times;
-      </button>
+      {isOwner && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(story.id);
+          }}
+          className="hidden rounded text-text-muted hover:text-danger group-hover:block"
+          title="Remove story"
+        >
+          &times;
+        </button>
+      )}
     </div>
   );
 }

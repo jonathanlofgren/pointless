@@ -424,6 +424,67 @@ test.describe("Export & Results", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Owner Permissions
+// ---------------------------------------------------------------------------
+
+test.describe("Room — Owner Permissions", () => {
+  test("non-owner cannot see reveal, re-vote, set estimate, or delete buttons", async ({ page, context }) => {
+    const roomUrl = await createRoom(page);
+    await joinRoom(page, "Alice");
+    await addStory(page, "Test story");
+
+    const page2 = await joinAsSecondPlayer(context, roomUrl, "Bob");
+
+    // Both vote
+    await voteCard(page2, "5");
+    await voteCard(page, "8");
+    await expect(page.locator("main")).toContainText("2/2 voted");
+
+    // Bob should NOT see the Reveal Cards button
+    await expect(page2.locator("main")).toContainText("2/2 voted");
+    await expect(page2.getByRole("button", { name: "Reveal Cards" })).toHaveCount(0);
+
+    // Alice reveals
+    await revealCards(page);
+
+    // Bob should NOT see Re-vote or Set estimate
+    await expect(page2.locator("main")).toContainText("Votes revealed!");
+    await expect(page2.getByRole("button", { name: "Re-vote" })).toHaveCount(0);
+    await expect(page2.locator("main")).not.toContainText("Set estimate");
+
+    // Bob should NOT see delete button on story hover
+    const storyItem = page2.locator("aside").getByText("Test story");
+    await storyItem.hover();
+    await expect(page2.locator('button[title="Remove story"]')).toHaveCount(0);
+
+    await page2.close();
+  });
+
+  test("non-owner cannot see re-estimate button on completed story", async ({ page, context }) => {
+    const roomUrl = await createRoom(page);
+    await joinRoom(page, "Alice");
+    await addStory(page, "Story A");
+    await completeStory(page, "5", "5");
+
+    // Wait for auto-advance
+    await expect(page.locator("main")).toContainText("Add a story", { timeout: 5000 });
+
+    const page2 = await joinAsSecondPlayer(context, roomUrl, "Bob");
+
+    // Bob clicks completed story
+    await page2.locator("aside").getByText("Story A").click();
+    await expect(page2.locator("main")).toContainText("Estimated");
+    await expect(page2.getByRole("button", { name: "Re-estimate this story" })).toHaveCount(0);
+
+    // Alice should still see re-estimate
+    await page.locator("aside").getByText("Story A").click();
+    await expect(page.getByRole("button", { name: "Re-estimate this story" })).toBeVisible();
+
+    await page2.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // UI Features
 // ---------------------------------------------------------------------------
 

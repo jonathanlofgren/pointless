@@ -24,6 +24,7 @@ export default function RoomPage() {
   const {
     state,
     connected,
+    isOwner,
     vote,
     reveal,
     clearVotes,
@@ -129,6 +130,7 @@ export default function RoomPage() {
             players={state.players}
             scaleName={state.scale.label}
             error={state.lastError}
+            isOwner={isOwner}
             onAdd={addStory}
             onSelect={handleSelectStory}
             onRemove={removeStory}
@@ -154,7 +156,7 @@ export default function RoomPage() {
                 {isViewingCompleted && (
                   <button
                     onClick={() => setViewingStoryId(null)}
-                    className="text-xs text-primary hover:underline"
+                    className="text-base text-primary hover:underline"
                   >
                     Back to voting
                   </button>
@@ -167,6 +169,7 @@ export default function RoomPage() {
             <CompletedStoryView
               story={viewingStory}
               players={state.players}
+              isOwner={isOwner}
               onReEstimate={handleReEstimate}
             />
           ) : currentStory?.finalEstimate ? (
@@ -198,12 +201,14 @@ export default function RoomPage() {
                 phase={state.phase}
                 scaleValues={state.scale.values}
                 currentStoryId={state.currentStoryId}
+                isOwner={isOwner}
                 onSetEstimate={setEstimate}
               />
               <RevealButton
                 phase={state.phase}
                 players={state.players}
                 hasCurrentStory={!!state.currentStoryId}
+                isOwner={isOwner}
                 onReveal={reveal}
                 onClear={handleClearVotes}
               />

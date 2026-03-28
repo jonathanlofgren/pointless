@@ -28,6 +28,7 @@ interface RoomState {
   currentStoryId: string | null;
   scale: PointScale;
   phase: "voting" | "revealed";
+  ownerIds: string[];
 }
 
 type ClientMessage =
@@ -86,6 +87,7 @@ interface PersistedState {
   currentStoryId: string | null;
   scale: PointScale;
   phase: "voting" | "revealed";
+  ownerIds: string[];
 }
 
 // --- Server ---
@@ -99,6 +101,7 @@ export default class PokerRoom implements Party.Server {
   currentStoryId: string | null = null;
   scale: PointScale = SCALES[0];
   phase: "voting" | "revealed" = "voting";
+  ownerIds: string[] = [];
   autoAdvanceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(readonly room: Party.Room) {}
@@ -112,6 +115,7 @@ export default class PokerRoom implements Party.Server {
       this.currentStoryId = saved.currentStoryId;
       this.scale = saved.scale;
       this.phase = saved.phase;
+      this.ownerIds = saved.ownerIds ?? [];
 
       const activeConnectionIds = new Set<string>();
       for (const conn of this.room.getConnections()) {
@@ -143,6 +147,7 @@ export default class PokerRoom implements Party.Server {
       currentStoryId: this.currentStoryId,
       scale: this.scale,
       phase: this.phase,
+      ownerIds: this.ownerIds,
     };
     await this.room.storage.put("state", state);
   }
@@ -169,6 +174,7 @@ export default class PokerRoom implements Party.Server {
       currentStoryId: this.currentStoryId,
       scale: this.scale,
       phase: this.phase,
+      ownerIds: this.ownerIds,
     };
   }
 
@@ -185,6 +191,7 @@ export default class PokerRoom implements Party.Server {
       currentStoryId: this.currentStoryId,
       scale: this.scale,
       phase: this.phase,
+      ownerIds: this.ownerIds,
     };
   }
 
@@ -216,6 +223,19 @@ export default class PokerRoom implements Party.Server {
     }
   }
 
+  private isOwner(connection: Party.Connection): boolean {
+    const playerId = this.connectionToPlayer.get(connection.id);
+    return playerId !== undefined && this.ownerIds.includes(playerId);
+  }
+
+  private requireOwner(sender: Party.Connection): boolean {
+    if (!this.isOwner(sender)) {
+      this.send(sender, { type: "error", message: "Only the room owner can do that" });
+      return false;
+    }
+    return true;
+  }
+
   onConnect(connection: Party.Connection, ctx: Party.ConnectionContext) {
     const url = new URL(ctx.request.url);
     const scaleParam = url.searchParams.get("scale");
@@ -229,7 +249,7 @@ export default class PokerRoom implements Party.Server {
   onMessage(message: string, sender: Party.Connection) {
     let msg: ClientMessage;
     try {
-      msg = JSON.parse(message as string);
+      msg = JSON.parse(message);
     } catch {
       this.send(sender, { type: "error", message: "Invalid JSON" });
       return;
@@ -243,28 +263,28 @@ export default class PokerRoom implements Party.Server {
         this.handleVote(sender, msg.value);
         break;
       case "reveal":
-        this.handleReveal();
+        this.handleReveal(sender);
         break;
       case "clear-votes":
-        this.handleClearVotes();
+        this.handleClearVotes(sender);
         break;
       case "add-story":
         this.handleAddStory(sender, msg.title);
         break;
       case "select-story":
-        this.handleSelectStory(msg.storyId);
+        this.handleSelectStory(msg.storyId, sender);
         break;
       case "set-estimate":
-        this.handleSetEstimate(msg.storyId, msg.value);
+        this.handleSetEstimate(msg.storyId, msg.value, sender);
         break;
       case "remove-story":
-        this.handleRemoveStory(msg.storyId);
+        this.handleRemoveStory(msg.storyId, sender);
         break;
       case "next-story":
-        this.handleNextStory();
+        this.handleNextStory(sender);
         break;
       case "re-estimate":
-        this.handleReEstimate(msg.storyId);
+        this.handleReEstimate(msg.storyId, sender);
         break;
     }
   }
@@ -312,6 +332,9 @@ export default class PokerRoom implements Party.Server {
         vote: null,
         isConnected: true,
       };
+      if (this.ownerIds.length === 0) {
+        this.ownerIds.push(playerId);
+      }
       this.players.set(playerId, player);
       this.connectionToPlayer.set(connection.id, playerId);
       this.send(connection, { type: "sync", state: this.getClientStateFor(playerId) });
@@ -340,7 +363,8 @@ export default class PokerRoom implements Party.Server {
     this.saveState();
   }
 
-  handleReveal() {
+  handleReveal(sender: Party.Connection) {
+    if (!this.requireOwner(sender)) return;
     if (this.phase === "revealed") return;
     if (!this.currentStoryId) return;
 
@@ -367,7 +391,8 @@ export default class PokerRoom implements Party.Server {
     this.saveState();
   }
 
-  handleClearVotes() {
+  handleClearVotes(sender: Party.Connection) {
+    if (!this.requireOwner(sender)) return;
     this.cancelAutoAdvance();
     this.clearAllVotes();
     this.broadcast({ type: "votes-cleared" });
@@ -401,7 +426,37 @@ export default class PokerRoom implements Party.Server {
     this.saveState();
   }
 
-  handleSelectStory(storyId: string) {
+  handleSelectStory(storyId: string, sender: Party.Connection) {
+    if (!this.requireOwner(sender)) return;
+    this.doSelectStory(storyId);
+  }
+
+  handleSetEstimate(storyId: string, value: string, sender: Party.Connection) {
+    if (!this.requireOwner(sender)) return;
+    this.doSetEstimate(storyId, value);
+  }
+
+  handleRemoveStory(storyId: string, sender: Party.Connection) {
+    if (!this.requireOwner(sender)) return;
+    this.doRemoveStory(storyId);
+  }
+
+  handleReEstimate(storyId: string, sender: Party.Connection) {
+    if (!this.requireOwner(sender)) return;
+    this.doReEstimate(storyId);
+  }
+
+  handleNextStory(sender: Party.Connection) {
+    if (!this.requireOwner(sender)) return;
+    const nextStory = this.findNextPendingStory();
+    if (nextStory) {
+      this.doSelectStory(nextStory.id);
+    }
+  }
+
+  // --- Internal mutations (no auth check, used by handlers and server-initiated logic) ---
+
+  private doSelectStory(storyId: string) {
     const story = this.stories.find((s) => s.id === storyId);
     if (!story) return;
 
@@ -414,7 +469,7 @@ export default class PokerRoom implements Party.Server {
     this.saveState();
   }
 
-  handleSetEstimate(storyId: string, value: string) {
+  private doSetEstimate(storyId: string, value: string) {
     const story = this.stories.find((s) => s.id === storyId);
     if (!story) return;
 
@@ -431,7 +486,7 @@ export default class PokerRoom implements Party.Server {
 
         const nextStory = this.findNextPendingStory(storyId);
         if (nextStory) {
-          this.handleSelectStory(nextStory.id);
+          this.doSelectStory(nextStory.id);
         } else {
           this.currentStoryId = null;
           this.clearAllVotes();
@@ -443,7 +498,7 @@ export default class PokerRoom implements Party.Server {
     }
   }
 
-  handleRemoveStory(storyId: string) {
+  private doRemoveStory(storyId: string) {
     this.stories = this.stories.filter((s) => s.id !== storyId);
 
     if (this.currentStoryId === storyId) {
@@ -456,21 +511,14 @@ export default class PokerRoom implements Party.Server {
     this.saveState();
   }
 
-  handleReEstimate(storyId: string) {
+  private doReEstimate(storyId: string) {
     const story = this.stories.find((s) => s.id === storyId);
     if (!story) return;
 
     story.finalEstimate = null;
     story.votes = {};
     this.broadcast({ type: "story-estimated", storyId, value: "" });
-    this.handleSelectStory(storyId);
-  }
-
-  handleNextStory() {
-    const nextStory = this.findNextPendingStory();
-    if (nextStory) {
-      this.handleSelectStory(nextStory.id);
-    }
+    this.doSelectStory(storyId);
   }
 
   async onRequest(req: Party.Request) {

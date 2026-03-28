@@ -24,5 +24,6 @@ export interface RoomState {
   currentStoryId: string | null;
   scale: PointScale;
   phase: "voting" | "revealed";
+  ownerIds: string[];
   lastError?: string;
 }

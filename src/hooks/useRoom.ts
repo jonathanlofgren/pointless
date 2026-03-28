@@ -10,6 +10,7 @@ const initialState: RoomState = {
   currentStoryId: null,
   scale: { id: "fibonacci", label: "Fibonacci", values: [] },
   phase: "voting",
+  ownerIds: [],
 };
 
 function roomReducer(state: RoomState, msg: ServerMessage): RoomState {
@@ -216,9 +217,12 @@ export function useRoom(
     [send]
   );
 
+  const isOwner = state.ownerIds.includes(playerId);
+
   return {
     state,
     connected,
+    isOwner,
     vote,
     reveal,
     clearVotes,
