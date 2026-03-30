@@ -10,12 +10,14 @@ import PlayerList from "../components/PlayerList";
 import RevealButton from "../components/RevealButton";
 import ResultsSummary from "../components/ResultsSummary";
 import CompletedStoryView from "../components/CompletedStoryView";
+import BulkImportModal from "../components/BulkImportModal";
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [searchParams] = useSearchParams();
   const scaleId = searchParams.get("scale") ?? undefined;
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [optimisticVote, setOptimisticVote] = useState<string | null>(null);
   const [viewingStoryId, setViewingStoryId] = useState<string | null>(null);
   const lastRoundKey = useRef("");
@@ -116,9 +118,9 @@ export default function RoomPage() {
       />
       <div className="flex min-h-0 flex-1">
         <div
-          className={`${
-            sidebarOpen ? "block" : "hidden"
-          } absolute inset-y-0 left-0 z-40 w-72 pt-[53px] lg:relative lg:block lg:pt-0`}
+          className={`absolute inset-y-0 left-0 z-40 w-72 pt-[53px] transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0 lg:pt-0 ${
+            sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
           onClick={(e) => {
             if (e.target === e.currentTarget) setSidebarOpen(false);
           }}
@@ -132,16 +134,17 @@ export default function RoomPage() {
             error={state.lastError}
             isOwner={isOwner}
             onAdd={addStory}
+            onOpenBulkImport={() => setBulkImportOpen(true)}
             onSelect={handleSelectStory}
             onRemove={removeStory}
           />
         </div>
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
+        <div
+          className={`fixed inset-0 z-30 bg-black/40 transition-opacity duration-200 lg:hidden ${
+            sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+          onClick={() => setSidebarOpen(false)}
+        />
 
         <main className="flex min-w-0 flex-1 flex-col">
           {displayStory && (
@@ -216,6 +219,17 @@ export default function RoomPage() {
           )}
         </main>
       </div>
+      {bulkImportOpen && (
+        <BulkImportModal
+          onImport={(titles) => {
+            for (const title of titles) {
+              addStory(title);
+            }
+            setBulkImportOpen(false);
+          }}
+          onClose={() => setBulkImportOpen(false)}
+        />
+      )}
     </div>
   );
 }

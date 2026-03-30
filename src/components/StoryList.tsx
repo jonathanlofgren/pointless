@@ -12,6 +12,7 @@ interface Props {
   error?: string;
   isOwner: boolean;
   onAdd: (title: string) => void;
+  onOpenBulkImport: () => void;
   onSelect: (storyId: string) => void;
   onRemove: (storyId: string) => void;
 }
@@ -25,6 +26,7 @@ export default function StoryList({
   error,
   isOwner,
   onAdd,
+  onOpenBulkImport,
   onSelect,
   onRemove,
 }: Props) {
@@ -40,7 +42,7 @@ export default function StoryList({
         <h2 className="text-sm font-semibold text-text-muted">Stories</h2>
       </div>
 
-      <AddStoryForm onAdd={onAdd} error={error} />
+      <AddStoryForm onAdd={onAdd} onOpenBulkImport={onOpenBulkImport} error={error} />
 
       <div className="flex-1 overflow-y-auto">
         {current && (

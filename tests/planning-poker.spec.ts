@@ -282,6 +282,35 @@ test.describe("Room — Single Player", () => {
     await expect(page.locator("aside")).toContainText("Now Estimating");
   });
 
+  test("bulk import adds multiple stories", async ({ page }) => {
+    await createRoom(page);
+    await joinRoom(page, "Alice");
+
+    // Open dropdown and click Bulk Import
+    await page.locator('button[title="More options"]').click();
+    await page.getByText("Bulk Import").click();
+
+    // Paste multiple stories
+    const textarea = page.getByPlaceholder("Paste stories here, one per line...");
+    await expect(textarea).toBeVisible();
+    await textarea.fill("Auth flow\nDashboard redesign\nPayment integration");
+
+    // Verify count
+    await expect(page.locator("text=3 stories to import")).toBeVisible();
+
+    // Submit
+    await page.getByRole("button", { name: /Import 3 stories/ }).click();
+
+    // Verify all stories appear in sidebar
+    const sidebar = page.locator("aside");
+    await expect(sidebar).toContainText("Auth flow");
+    await expect(sidebar).toContainText("Dashboard redesign");
+    await expect(sidebar).toContainText("Payment integration");
+
+    // First story should be auto-selected
+    await expect(sidebar).toContainText("Now Estimating");
+  });
+
   test("remove story from sidebar", async ({ page }) => {
     await createRoom(page);
     await joinRoom(page, "Alice");
